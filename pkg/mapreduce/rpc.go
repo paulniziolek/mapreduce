@@ -3,27 +3,23 @@ package mapreduce
 import (
 	"os"
 	"strconv"
+
+	"github.com/paulniziolek/mapreduce/pkg/mapreduce/task"
 )
 
-//
-// example to show how to declare the arguments
-// and reply for an RPC.
-//
+type GetTaskRequest struct{}
 
-type ExampleArgs struct {
-	X int
+type GetTaskResponse struct {
+	Task *task.Task
 }
 
-type ExampleReply struct {
-	Y int
+type FinishTaskRequest struct {
+	Task       *task.Task
+	FileOutput []string
 }
 
-// Add your RPC definitions here.
+type FinishTaskResponse struct{}
 
-// Cook up a unique-ish UNIX-domain socket name
-// in /var/tmp, for the master.
-// Can't use the current directory since
-// Athena AFS doesn't support UNIX-domain sockets.
 func masterSock() string {
 	s := "/var/tmp/824-mr-"
 	s += strconv.Itoa(os.Getuid())
