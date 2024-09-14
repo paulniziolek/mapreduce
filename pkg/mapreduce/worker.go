@@ -3,18 +3,25 @@ package mapreduce
 import (
 	"fmt"
 	"hash/fnv"
+	"io"
 	"log"
 	"net/rpc"
+	"os"
+
+	"github.com/paulniziolek/mapreduce/pkg/mapreduce/task"
 )
 
-// Map functions return a slice of KeyValue.
 type KeyValue struct {
 	Key   string
 	Value string
 }
 
-// use ihash(key) % NReduce to choose the reduce
-// task number for each KeyValue emitted by Map.
+var ( 
+	intermediateFileFormat = "mr-%d-%d"
+	finalFileFormat = "mr-out-%d"
+)
+
+// ihash(key) % nReduce to split keys across nReduce reduce tasks
 func ihash(key string) int {
 	h := fnv.New32a()
 	h.Write([]byte(key))
@@ -25,37 +32,46 @@ func ihash(key string) int {
 func Worker(mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string) {
 
-	// Your worker implementation here.
+	for {
+		resp := &GetTaskResponse{}
+		call("Master.GetTask", &GetTaskRequest{}, resp)
+		t := resp.Task
 
-	// uncomment to send the Example RPC to the master.
-	CallExample()
+		if t.TaskType == task.Map {
+			processMapTask(mapf, t)
+		} else if t.TaskType == task.Reduce {
+			processReduceTask(reducef, t)
+		} else if t.TaskType == task.Exit {
+			fmt.Println("Exit task received, exiting...")
+			os.Exit(0)
+		}
 
+	}
 }
 
-// example function to show how to make an RPC call to the master.
-//
-// the RPC argument and reply types are defined in rpc.go.
-func CallExample() {
+func processMapTask(mapf func(string, string) []KeyValue, t *task.Task) {
+	file, err := os.Open(t.FileName)
+	if err != nil {
+		log.Fatalf("cannot open %v", t.FileName)
+	}
+	content, err := io.ReadAll(file)
+	if err != nil {
+		log.Fatalf("cannot read %v", t.FileName)
+	}
+	file.Close()
 
-	// declare an argument structure.
-	args := ExampleArgs{}
+	kva := mapf(t.FileName, string(content))
 
-	// fill in the argument(s).
-	args.X = 99
+	// TODO: process KV pairs and emit to intermediate files
+}
 
-	// declare a reply structure.
-	reply := ExampleReply{}
+func processReduceTask(reducef func(string, []string) string, t *task.Task) {
+	// TODO: IMPLEMENT
 
-	// send the RPC request, wait for the reply.
-	call("Master.Example", &args, &reply)
-
-	// reply.Y should be 100.
-	fmt.Printf("reply.Y %v\n", reply.Y)
 }
 
 // send an RPC request to the master, wait for the response.
-// usually returns true.
-// returns false if something goes wrong.
+// usually returns true. returns false if something goes wrong.
 func call(rpcname string, args interface{}, reply interface{}) bool {
 	// c, err := rpc.DialHTTP("tcp", "127.0.0.1"+":1234")
 	sockname := masterSock()
