@@ -16,9 +16,9 @@ type KeyValue struct {
 	Value string
 }
 
-var ( 
+var (
 	intermediateFileFormat = "mr-%d-%d"
-	finalFileFormat = "mr-out-%d"
+	finalFileFormat        = "mr-out-%d"
 )
 
 // ihash(key) % nReduce to split keys across nReduce reduce tasks
@@ -50,17 +50,18 @@ func Worker(mapf func(string, string) []KeyValue,
 }
 
 func processMapTask(mapf func(string, string) []KeyValue, t *task.Task) {
-	file, err := os.Open(t.FileName)
+	filename := t.MapMetadata.InputFile
+	file, err := os.Open(filename)
 	if err != nil {
-		log.Fatalf("cannot open %v", t.FileName)
+		log.Fatalf("cannot open %v", filename)
 	}
 	content, err := io.ReadAll(file)
 	if err != nil {
-		log.Fatalf("cannot read %v", t.FileName)
+		log.Fatalf("cannot read %v", filename)
 	}
 	file.Close()
 
-	kva := mapf(t.FileName, string(content))
+	kva := mapf(filename, string(content))
 
 	// TODO: process KV pairs and emit to intermediate files
 }
