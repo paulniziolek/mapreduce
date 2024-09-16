@@ -11,5 +11,6 @@ type MapTask struct {
 type ReduceTask struct {
 	ID                int
 	Status            TaskStatus
+	LastProcessed     int64
 	IntermediateFiles []string
 }

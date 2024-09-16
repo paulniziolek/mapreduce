@@ -29,26 +29,30 @@ type Master struct {
 func (m *Master) GetTask(args *GetTaskRequest, reply *GetTaskResponse) error {
 	// look for map tasks
 	m.tasklock.Lock()
-	defer m.tasklock.Unlock()
 
 	mapTask := m.getMapTask()
 	if mapTask != nil {
 		updateMapTask(mapTask)
 		reply.MapTask = mapTask
+		m.tasklock.Unlock()
 		return nil
 	}
 
-	// Check if all map tasks are done / if its OK to assign reduce tasks
-	// otherwise, design behavior around GetTask with nondeterminate tasks
-	// TODO: what to do when no tasks available but MapReduce is still not Done
+	if m.MapTasksDone() {
+		m.tasklock.Unlock()
+		return nil
+	}
 
 	reduceTask := m.getReduceTask()
 	if reduceTask != nil {
-		// don't know yet if I need to update reduce task, as I don't know if reduce workers can fail / how to handle if they're slow.
+		updateReduceTask(reduceTask)
 		reply.ReduceTask = reduceTask
+		m.tasklock.Unlock()
 		return nil
 	}
 
+	m.tasklock.Unlock()
+	reply.Done = m.Done()
 	return nil
 }
 
@@ -79,6 +83,11 @@ func updateMapTask(t *task.MapTask) {
 	t.LastProcessed = time.Now().Unix()
 }
 
+func updateReduceTask(t *task.ReduceTask) {
+	t.Status = task.Processing
+	t.LastProcessed = time.Now().Unix()
+}
+
 func (m *Master) ReportMap(args *ReportMapRequest, reply *ReportMapReply) {
 	m.tasklock.Lock()
 	defer m.tasklock.Unlock()
@@ -86,7 +95,9 @@ func (m *Master) ReportMap(args *ReportMapRequest, reply *ReportMapReply) {
 	mapTask := m.mapTasks[args.InputFile]
 	mapTask.Status = task.Done
 
-	// TODO: add generated intermediate files to respective Reduce Tasks
+	for i, file := range args.IntermediateFiles {
+		m.reduceTasks[i].IntermediateFiles = append(m.reduceTasks[i].IntermediateFiles, file)
+	}
 }
 
 func (m *Master) ReportReduce(args *ReportReduceRequest, reply *ReportReduceReply) {
@@ -112,6 +123,20 @@ func (m *Master) Done() bool {
 
 	return done
 }
+
+// Caller requires lock
+func (m *Master) MapTasksDone() bool {
+	done := true
+	for _, t := range m.mapTasks {
+		if t.Status != task.Done {
+			done = false
+		}
+	}
+
+	return done
+}
+
+// TODO: Handle Master Ticker logic to check for crashed/slow workers
 
 func MakeMaster(files []string, nReduce int) *Master {
 	mapTasksMap := make(map[string]*task.MapTask)
