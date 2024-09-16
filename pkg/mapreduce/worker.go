@@ -9,6 +9,7 @@ import (
 	"net/rpc"
 	"os"
 	"sort"
+	"time"
 
 	"github.com/paulniziolek/mapreduce/pkg/mapreduce/task"
 )
@@ -59,7 +60,8 @@ func Worker(mapf func(string, string) []KeyValue,
 		} else if resp.ReduceTask != nil {
 			processReduceTask(reducef, resp.ReduceTask)
 		} else {
-			fmt.Println("Unexpected/nil GetTask response")
+			// Polling
+			time.Sleep(1 * time.Second)
 		}
 	}
 }
