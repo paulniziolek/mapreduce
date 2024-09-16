@@ -10,15 +10,22 @@ import (
 type GetTaskRequest struct{}
 
 type GetTaskResponse struct {
-	Task *task.Task
+	MapTask    *task.MapTask
+	ReduceTask *task.ReduceTask
 }
 
-type FinishTaskRequest struct {
-	Task       *task.Task
-	FileOutput []string
+type ReportMapRequest struct {
+	InputFile         string
+	IntermediateFiles []string
 }
 
-type FinishTaskResponse struct{}
+type ReportMapReply struct{}
+
+type ReportReduceRequest struct {
+	ReducerID int
+}
+
+type ReportReduceReply struct{}
 
 func masterSock() string {
 	s := "/var/tmp/824-mr-"

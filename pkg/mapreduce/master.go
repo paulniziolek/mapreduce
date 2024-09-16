@@ -15,19 +15,15 @@ import (
 const TaskTimeout = 10
 
 type Master struct {
-	// Your definitions here.
-	tasks []*task.Task
+	// mapping input files to their MapTask definition
+	mapTasks map[string]*task.MapTask
+	// mapping reduce job IDs to their ReduceTask definition
+	reduceTasks map[int]*task.ReduceTask
+
+	reducerCount int
 
 	// asynchronously update tasks
 	tasklock sync.Mutex
-
-	// condition once all map tasks have been done
-	mapcond *sync.Cond
-
-	nReduce int
-
-	mapDone    bool
-	reduceDone bool
 }
 
 func (m *Master) GetTask(args *GetTaskRequest, reply *GetTaskResponse) error {
@@ -35,52 +31,99 @@ func (m *Master) GetTask(args *GetTaskRequest, reply *GetTaskResponse) error {
 	m.tasklock.Lock()
 	defer m.tasklock.Unlock()
 
-	for {
-		for _, t := range m.tasks {
-			if t.TaskType == task.Map && isProcessableTask(t) {
-				reply.Task = t
-				updateTask(t)
-				return nil
-			}
-		}
-
-		if m.mapDone {
-			for _, t := range m.tasks {
-				if t.TaskType == task.Reduce && isProcessableTask(t) {
-					reply.Task = t
-					updateTask(t)
-					return nil
-				}
-			}
-		}
-
-		if m.mapDone && m.reduceDone {
-			reply.Task = &task.Task{TaskType: task.Exit}
-			return nil
-		}
-
-		m.mapcond.Wait()
+	mapTask := m.getMapTask()
+	if mapTask != nil {
+		updateMapTask(mapTask)
+		reply.MapTask = mapTask
+		return nil
 	}
+
+	// Check if all map tasks are done / if its OK to assign reduce tasks
+	// otherwise, design behavior around GetTask with nondeterminate tasks
+	// TODO: what to do when no tasks available but MapReduce is still not Done
+
+	reduceTask := m.getReduceTask()
+	if reduceTask != nil {
+		// don't know yet if I need to update reduce task, as I don't know if reduce workers can fail / how to handle if they're slow.
+		reply.ReduceTask = reduceTask
+		return nil
+	}
+
+	return nil
 }
 
-func isProcessableTask(t *task.Task) bool {
-	return t.Status == task.Idle || (t.Status == task.Processing && time.Now().Unix()-t.LastUpdated >= TaskTimeout)
+func (m *Master) getMapTask() *task.MapTask {
+	for _, t := range m.mapTasks {
+		if isProcessableMapTask(t) {
+			return t
+		}
+	}
+	return nil
 }
 
-func updateTask(t *task.Task) {
+func (m *Master) getReduceTask() *task.ReduceTask {
+	for _, t := range m.reduceTasks {
+		if t.Status == task.Idle {
+			return t
+		}
+	}
+	return nil
+}
+
+func isProcessableMapTask(t *task.MapTask) bool {
+	return t.Status == task.Idle || (t.Status == task.Processing && time.Now().Unix()-t.LastProcessed >= TaskTimeout)
+}
+
+func updateMapTask(t *task.MapTask) {
 	t.Status = task.Processing
-	t.LastUpdated = time.Now().Unix()
+	t.LastProcessed = time.Now().Unix()
 }
 
-func (m *Master) FinishTask(args *FinishTaskRequest, reply *FinishTaskResponse) {
+func (m *Master) ReportMap(args *ReportMapRequest, reply *ReportMapReply) {
 	m.tasklock.Lock()
 	defer m.tasklock.Unlock()
 
-	args.Task.Status = task.Done
-	args.Task.LastUpdated = time.Now().Unix()
+	mapTask := m.mapTasks[args.InputFile]
+	mapTask.Status = task.Done
 
-	// TODO: IMPLEMENT
+	// TODO: add generated intermediate files to respective Reduce Tasks
+}
 
+func (m *Master) ReportReduce(args *ReportReduceRequest, reply *ReportReduceReply) {
+	m.tasklock.Lock()
+	defer m.tasklock.Unlock()
+
+	reduceTask := m.reduceTasks[args.ReducerID]
+	reduceTask.Status = task.Done
+}
+
+// main/mrmaster.go calls Done() periodically to find out
+// if the entire job has finished.
+func (m *Master) Done() bool {
+	m.tasklock.Lock()
+	defer m.tasklock.Unlock()
+
+	done := true
+	for _, t := range m.reduceTasks {
+		if t.Status != task.Done {
+			done = false
+		}
+	}
+
+	return done
+}
+
+func MakeMaster(files []string, nReduce int) *Master {
+	m := Master{
+		mapTasks:     make(map[string]*task.MapTask),
+		reduceTasks:  make(map[int]*task.ReduceTask),
+		reducerCount: nReduce,
+	}
+
+	// TODO: initialize map/reduce tasks
+
+	m.server()
+	return &m
 }
 
 // start a thread that listens for RPCs from worker.go
@@ -95,19 +138,4 @@ func (m *Master) server() {
 		log.Fatal("listen error:", e)
 	}
 	go http.Serve(l, nil)
-}
-
-// main/mrmaster.go calls Done() periodically to find out
-// if the entire job has finished.
-func (m *Master) Done() bool {
-	ret := m.mapDone && m.reduceDone
-
-	return ret
-}
-
-func MakeMaster(files []string, nReduce int) *Master {
-	m := Master{nReduce: nReduce}
-
-	m.server()
-	return &m
 }

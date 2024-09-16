@@ -40,23 +40,19 @@ func Worker(mapf func(string, string) []KeyValue,
 			// Assume master has finished
 			os.Exit(0)
 		}
-		t := resp.Task
 
-		if t.TaskType == task.Map {
-			processMapTask(mapf, t)
-		} else if t.TaskType == task.Reduce {
-			processReduceTask(reducef, t)
-		} else if t.TaskType == task.Exit {
-			fmt.Println("Exit task received, exiting...")
-			os.Exit(0)
+		if resp.MapTask != nil {
+			processMapTask(mapf, resp.MapTask)
+		} else if resp.ReduceTask != nil {
+			processReduceTask(reducef, resp.ReduceTask)
+		} else {
+			fmt.Println("Unexpected/nil GetTask response")
 		}
-
 	}
 }
 
-func processMapTask(mapf func(string, string) []KeyValue, t *task.Task) {
-	filename := t.MapMetadata.InputFile
-	reduceWorkers := t.MapMetadata.ReduceWorkers
+func processMapTask(mapf func(string, string) []KeyValue, task *task.MapTask) {
+	filename := task.InputFile
 
 	file, err := os.Open(filename)
 	if err != nil {
@@ -70,16 +66,16 @@ func processMapTask(mapf func(string, string) []KeyValue, t *task.Task) {
 
 	kva := mapf(filename, string(content))
 
-	kvBuckets := createKVBuckets(kva, reduceWorkers)
+	kvBuckets := createKVBuckets(kva, task.ReducerCount)
 
-	intermediateFiles, _ := writeIntermediateFiles(t.ID, kvBuckets)
+	intermediateFiles, _ := writeIntermediateFiles(task.ID, kvBuckets)
 
-	call("Master.FinishTask",
-		&FinishTaskRequest{
-			Task:       t,
-			FileOutput: intermediateFiles,
+	call("Master.ReportMapRequest",
+		&ReportMapRequest{
+			InputFile:         filename,
+			IntermediateFiles: intermediateFiles,
 		},
-		&FinishTaskResponse{},
+		&ReportMapReply{},
 	)
 }
 
@@ -109,7 +105,7 @@ func writeIntermediateFiles(mapID int, buckets [][]*KeyValue) ([]string, error) 
 	return createdFiles, nil
 }
 
-func processReduceTask(reducef func(string, []string) string, t *task.Task) {
+func processReduceTask(reducef func(string, []string) string, t *task.ReduceTask) {
 	// TODO: IMPLEMENT
 	log.Fatalf("received reduce task, unimplemented...")
 }

@@ -1,20 +1,15 @@
 package task
 
-type Task struct {
-	ID          int // ID corresponds with either Map Task ID, or Reduce Task ID (where in the case of Reduce, ID < nReduce)
-	TaskType    TaskType
-	Status      TaskStatus
-	LastUpdated int64
-
-	MapMetadata    *MapMetadata
-	ReduceMetadata *ReduceMetadata
-}
-
-type MapMetadata struct {
+type MapTask struct {
+	ID            int
+	Status        TaskStatus
+	LastProcessed int64
 	InputFile     string
-	ReduceWorkers int
+	ReducerCount  int
 }
 
-type ReduceMetadata struct {
+type ReduceTask struct {
+	ID                int
+	Status            TaskStatus
 	IntermediateFiles []string
 }
