@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/rpc"
 	"os"
+	"sort"
 
 	"github.com/paulniziolek/mapreduce/pkg/mapreduce/task"
 )
@@ -16,6 +17,18 @@ type KeyValue struct {
 	Key   string
 	Value string
 }
+
+type KeyValueList []KeyValue
+
+func (a KeyValueList) Len() int           { return len(a) }
+func (a KeyValueList) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
+func (a KeyValueList) Less(i, j int) bool { return a[i].Key < a[j].Key }
+
+const (
+	GetTask      string = "Master.GetTask"
+	ReportMap    string = "Master.ReportMap"
+	ReportReduce string = "Master.ReportReduce"
+)
 
 var (
 	intermediateFileFormat = "mr-%d-%d"
@@ -35,9 +48,9 @@ func Worker(mapf func(string, string) []KeyValue,
 
 	for {
 		resp := &GetTaskResponse{}
-		success := call("Master.GetTask", &GetTaskRequest{}, resp)
-		if !success {
-			// Assume master has finished
+		success := call(GetTask, &GetTaskRequest{}, resp)
+		if !success || resp.Done {
+			// Assume master has finished for failed GetTask calls
 			os.Exit(0)
 		}
 
@@ -70,7 +83,7 @@ func processMapTask(mapf func(string, string) []KeyValue, task *task.MapTask) {
 
 	intermediateFiles, _ := writeIntermediateFiles(task.ID, kvBuckets)
 
-	call("Master.ReportMapRequest",
+	call(ReportMap,
 		&ReportMapRequest{
 			InputFile:         filename,
 			IntermediateFiles: intermediateFiles,
@@ -106,8 +119,45 @@ func writeIntermediateFiles(mapID int, buckets [][]*KeyValue) ([]string, error) 
 }
 
 func processReduceTask(reducef func(string, []string) string, t *task.ReduceTask) {
-	// TODO: IMPLEMENT
-	log.Fatalf("received reduce task, unimplemented...")
+	outputFileName := fmt.Sprintf(finalFileFormat, t.ID)
+	outputFile, _ := os.CreateTemp("", outputFileName)
+	aggregate := []KeyValue{}
+
+	for _, f := range t.IntermediateFiles {
+		file, _ := os.Open(f)
+
+		contents, _ := io.ReadAll(file)
+		var kva []KeyValue
+		json.Unmarshal(contents, &kva)
+		aggregate = append(aggregate, kva...)
+		file.Close()
+	}
+
+	sort.Sort(KeyValueList(aggregate))
+
+	enc := json.NewEncoder(outputFile)
+	i := 0
+	for i < len(aggregate) {
+		key := aggregate[i].Key
+		values := []string{aggregate[i].Value}
+
+		var j int
+		for j = 0; j < len(aggregate) && aggregate[j].Key == key; j++ {
+			values = append(values, aggregate[j].Value)
+		}
+		i = j
+
+		reducedValue := reducef(key, values)
+		enc.Encode(KeyValue{Key: key, Value: reducedValue})
+	}
+	os.Rename(outputFile.Name(), outputFileName)
+
+	call(ReportReduce,
+		&ReportReduceRequest{
+			t.ID,
+		},
+		&ReportReduceReply{},
+	)
 }
 
 // send an RPC request to the master, wait for the response.
