@@ -114,14 +114,32 @@ func (m *Master) Done() bool {
 }
 
 func MakeMaster(files []string, nReduce int) *Master {
-	m := Master{
-		mapTasks:     make(map[string]*task.MapTask),
-		reduceTasks:  make(map[int]*task.ReduceTask),
-		reducerCount: nReduce,
+	mapTasksMap := make(map[string]*task.MapTask)
+	currMapID := 0 // incremental ID
+
+	for _, file := range files {
+		mapTasksMap[file] = &task.MapTask{
+			ID:           currMapID,
+			Status:       task.Idle,
+			InputFile:    file,
+			ReducerCount: nReduce,
+		}
+		currMapID++
 	}
 
-	// TODO: initialize map/reduce tasks
+	reduceTasksMap := make(map[int]*task.ReduceTask)
+	for i := 0; i < nReduce; i++ {
+		reduceTasksMap[i] = &task.ReduceTask{
+			ID:     i,
+			Status: task.Idle,
+		}
+	}
 
+	m := Master{
+		mapTasks:     mapTasksMap,
+		reduceTasks:  reduceTasksMap,
+		reducerCount: nReduce,
+	}
 	m.server()
 	return &m
 }
