@@ -67,7 +67,7 @@ func (m *Master) getMapTask() *task.MapTask {
 
 func (m *Master) getReduceTask() *task.ReduceTask {
 	for _, t := range m.reduceTasks {
-		if t.Status == task.Idle {
+		if isProcessableReduceTask(t) {
 			return t
 		}
 	}
@@ -75,6 +75,10 @@ func (m *Master) getReduceTask() *task.ReduceTask {
 }
 
 func isProcessableMapTask(t *task.MapTask) bool {
+	return t.Status == task.Idle || (t.Status == task.Processing && time.Now().Unix()-t.LastProcessed >= TaskTimeout)
+}
+
+func isProcessableReduceTask(t *task.ReduceTask) bool {
 	return t.Status == task.Idle || (t.Status == task.Processing && time.Now().Unix()-t.LastProcessed >= TaskTimeout)
 }
 
@@ -136,8 +140,6 @@ func (m *Master) MapTasksDone() bool {
 	return done
 }
 
-// TODO: Handle Master Ticker logic to check for crashed/slow workers
-
 func MakeMaster(files []string, nReduce int) *Master {
 	mapTasksMap := make(map[string]*task.MapTask)
 	currMapID := 0 // incremental ID
@@ -165,6 +167,7 @@ func MakeMaster(files []string, nReduce int) *Master {
 		reduceTasks:  reduceTasksMap,
 		reducerCount: nReduce,
 	}
+	// TODO: Handle Master Ticker logic to check for crashed/slow workers
 	m.server()
 	return &m
 }
