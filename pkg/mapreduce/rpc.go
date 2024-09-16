@@ -12,6 +12,7 @@ type GetTaskRequest struct{}
 type GetTaskResponse struct {
 	MapTask    *task.MapTask
 	ReduceTask *task.ReduceTask
+	Done       bool
 }
 
 type ReportMapRequest struct {
