@@ -112,13 +112,14 @@ func writeIntermediateFiles(mapID int, buckets [][]*KeyValue) ([]string, error) 
 
 	for i, bucket := range buckets {
 		createdFiles[i] = fmt.Sprintf(intermediateFileFormat, mapID, i)
-		file, _ := os.Create(createdFiles[i])
+		file, _ := os.CreateTemp("", createdFiles[i])
 		enc := json.NewEncoder(file)
-		defer file.Close()
 
 		for _, kv := range bucket {
 			enc.Encode(kv)
 		}
+		os.Rename(file.Name(), createdFiles[i])
+		file.Close()
 	}
 
 	return createdFiles, nil
