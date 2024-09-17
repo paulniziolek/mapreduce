@@ -177,6 +177,7 @@ func MakeMaster(files []string, nReduce int) *Master {
 	}
 	// TODO: Handle Master Ticker logic to check for crashed/slow workers
 	m.server()
+	log.Printf("Created MapReduce job with %d map tasks and %d reduce tasks", len(mapTasksMap), len(reduceTasksMap))
 	return &m
 }
 
