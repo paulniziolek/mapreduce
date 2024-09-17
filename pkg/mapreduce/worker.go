@@ -49,18 +49,21 @@ func Worker(mapf func(string, string) []KeyValue,
 
 	for {
 		resp := &GetTaskResponse{}
-		success := call(GetTask, &GetTaskRequest{}, resp)
-		if !success || resp.Done {
-			// Assume master has finished for failed GetTask calls
+		call(GetTask, &GetTaskRequest{}, resp)
+		if resp.Done {
+			log.Println("Recieved DONE, exiting...")
 			os.Exit(0)
 		}
 
 		if resp.MapTask != nil {
+			log.Printf("Doing Map Task %d ON %s", resp.MapTask.ID, resp.MapTask.InputFile)
 			processMapTask(mapf, resp.MapTask)
 		} else if resp.ReduceTask != nil {
+			log.Printf("Doing Reduce Task %d", resp.ReduceTask.ID)
 			processReduceTask(reducef, resp.ReduceTask)
 		} else {
 			// Polling
+			log.Println("Awaiting next task")
 			time.Sleep(1 * time.Second)
 		}
 	}
@@ -85,6 +88,7 @@ func processMapTask(mapf func(string, string) []KeyValue, task *task.MapTask) {
 
 	intermediateFiles, _ := writeIntermediateFiles(task.ID, kvBuckets)
 
+	log.Printf("Reporting Map Task Done on %s, with intermediate files %v", filename, intermediateFiles)
 	call(ReportMap,
 		&ReportMapRequest{
 			InputFile:         filename,
@@ -123,6 +127,8 @@ func writeIntermediateFiles(mapID int, buckets [][]*KeyValue) ([]string, error) 
 func processReduceTask(reducef func(string, []string) string, t *task.ReduceTask) {
 	outputFileName := fmt.Sprintf(finalFileFormat, t.ID)
 	outputFile, _ := os.CreateTemp("", outputFileName)
+	defer outputFile.Close()
+
 	aggregate := []KeyValue{}
 
 	for _, f := range t.IntermediateFiles {
@@ -154,6 +160,7 @@ func processReduceTask(reducef func(string, []string) string, t *task.ReduceTask
 	}
 	os.Rename(outputFile.Name(), outputFileName)
 
+	log.Printf("Reporting Reduce Task %d Done on %v, with output files %s", t.ID, t.IntermediateFiles, outputFile.Name())
 	call(ReportReduce,
 		&ReportReduceRequest{
 			t.ID,
@@ -169,7 +176,9 @@ func call(rpcname string, args interface{}, reply interface{}) bool {
 	sockname := masterSock()
 	c, err := rpc.DialHTTP("unix", sockname)
 	if err != nil {
-		log.Fatal("dialing:", err)
+		log.Println("Error! Failed connect", err.Error())
+		time.Sleep(1 * time.Second)
+		return false
 	}
 	defer c.Close()
 

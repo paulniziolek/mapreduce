@@ -35,11 +35,13 @@ func (m *Master) GetTask(args *GetTaskRequest, reply *GetTaskResponse) error {
 		updateMapTask(mapTask)
 		reply.MapTask = mapTask
 		m.tasklock.Unlock()
+		log.Printf("Assigned map task %d to worker", mapTask.ID)
 		return nil
 	}
 
-	if m.MapTasksDone() {
+	if !m.MapTasksDone() {
 		m.tasklock.Unlock()
+		log.Println("Telling worker to wait for other Map Tasks")
 		return nil
 	}
 
@@ -48,10 +50,12 @@ func (m *Master) GetTask(args *GetTaskRequest, reply *GetTaskResponse) error {
 		updateReduceTask(reduceTask)
 		reply.ReduceTask = reduceTask
 		m.tasklock.Unlock()
+		log.Printf("Assigned reduce task %d to worker", reduceTask.ID)
 		return nil
 	}
 
 	m.tasklock.Unlock()
+	log.Println("Returned DONE status to worker")
 	reply.Done = m.Done()
 	return nil
 }
@@ -92,7 +96,7 @@ func updateReduceTask(t *task.ReduceTask) {
 	t.LastProcessed = time.Now().Unix()
 }
 
-func (m *Master) ReportMap(args *ReportMapRequest, reply *ReportMapReply) {
+func (m *Master) ReportMap(args *ReportMapRequest, reply *ReportMapReply) error {
 	m.tasklock.Lock()
 	defer m.tasklock.Unlock()
 
@@ -102,14 +106,18 @@ func (m *Master) ReportMap(args *ReportMapRequest, reply *ReportMapReply) {
 	for i, file := range args.IntermediateFiles {
 		m.reduceTasks[i].IntermediateFiles = append(m.reduceTasks[i].IntermediateFiles, file)
 	}
+	log.Println("Received worker call to ReportMap")
+	return nil
 }
 
-func (m *Master) ReportReduce(args *ReportReduceRequest, reply *ReportReduceReply) {
+func (m *Master) ReportReduce(args *ReportReduceRequest, reply *ReportReduceReply) error {
 	m.tasklock.Lock()
 	defer m.tasklock.Unlock()
 
 	reduceTask := m.reduceTasks[args.ReducerID]
 	reduceTask.Status = task.Done
+	log.Println("Received worker call to ReportReduce")
+	return nil
 }
 
 // main/mrmaster.go calls Done() periodically to find out
