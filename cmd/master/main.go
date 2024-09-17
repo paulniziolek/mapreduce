@@ -1,9 +1,16 @@
 package main
 
-import mr "github.com/paulniziolek/mapreduce/pkg/mapreduce"
-import "time"
-import "os"
-import "fmt"
+import (
+	"fmt"
+	"os"
+	"time"
+
+	mr "github.com/paulniziolek/mapreduce/pkg/mapreduce"
+)
+
+const (
+	nReduce = 10
+)
 
 func main() {
 	if len(os.Args) < 2 {
@@ -11,7 +18,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	m := mr.MakeMaster(os.Args[1:], 10)
+	m := mr.MakeMaster(os.Args[1:], nReduce)
 	for m.Done() == false {
 		time.Sleep(time.Second)
 	}
