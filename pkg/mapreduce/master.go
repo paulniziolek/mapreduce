@@ -79,11 +79,11 @@ func (m *Master) getReduceTask() *task.ReduceTask {
 }
 
 func isProcessableMapTask(t *task.MapTask) bool {
-	return t.Status == task.Idle || (t.Status == task.Processing && time.Now().Unix()-t.LastProcessed >= TaskTimeout)
+	return t.Status == task.Idle
 }
 
 func isProcessableReduceTask(t *task.ReduceTask) bool {
-	return t.Status == task.Idle || (t.Status == task.Processing && time.Now().Unix()-t.LastProcessed >= TaskTimeout)
+	return t.Status == task.Idle
 }
 
 func updateMapTask(t *task.MapTask) {
@@ -148,6 +148,46 @@ func (m *Master) MapTasksDone() bool {
 	return done
 }
 
+func (m *Master) StartTicker() {
+	ticker := time.NewTicker(10 * time.Second)
+
+	go func() {
+		for {
+			select {
+			case <-ticker.C:
+				if m.Done() {
+					return
+				}
+				m.CheckDeadWorker()
+			}
+		}
+	}()
+}
+
+func (m *Master) CheckDeadWorker() {
+	m.tasklock.Lock()
+	defer m.tasklock.Unlock()
+	for _, v := range m.mapTasks {
+		if v.Status == task.Processing {
+			if time.Now().Unix()-v.LastProcessed > TaskTimeout {
+				log.Printf("Detected dead map task %d, restarting with new worker...", v.ID)
+				v.Status = task.Idle
+				continue
+			}
+		}
+	}
+
+	for _, v := range m.reduceTasks {
+		if v.Status == task.Processing {
+			if time.Now().Unix()-v.LastProcessed > TaskTimeout {
+				log.Printf("Detected dead reduce task %d, restarting with new worker...", v.ID)
+				v.Status = task.Idle
+				continue
+			}
+		}
+	}
+}
+
 func MakeMaster(files []string, nReduce int) *Master {
 	mapTasksMap := make(map[string]*task.MapTask)
 	currMapID := 0 // incremental ID
@@ -175,7 +215,7 @@ func MakeMaster(files []string, nReduce int) *Master {
 		reduceTasks:  reduceTasksMap,
 		reducerCount: nReduce,
 	}
-	// TODO: Handle Master Ticker logic to check for crashed/slow workers
+	m.StartTicker()
 	m.server()
 	log.Printf("Created MapReduce job with %d map tasks and %d reduce tasks", len(mapTasksMap), len(reduceTasksMap))
 	return &m
