@@ -64,7 +64,7 @@ func Worker(mapf func(string, string) []KeyValue,
 		} else {
 			// Polling
 			log.Println("Awaiting next task")
-			time.Sleep(1 * time.Second)
+			time.Sleep(250 * time.Millisecond)
 		}
 	}
 }
@@ -133,11 +133,14 @@ func processReduceTask(reducef func(string, []string) string, t *task.ReduceTask
 
 	for _, f := range t.IntermediateFiles {
 		file, _ := os.Open(f)
-
-		contents, _ := io.ReadAll(file)
-		var kva []KeyValue
-		json.Unmarshal(contents, &kva)
-		aggregate = append(aggregate, kva...)
+		dec := json.NewDecoder(file)
+		for {
+			var kv KeyValue
+			if err := dec.Decode(&kv); err != nil {
+				break
+			}
+			aggregate = append(aggregate, kv)
+		}
 		file.Close()
 	}
 
@@ -150,17 +153,18 @@ func processReduceTask(reducef func(string, []string) string, t *task.ReduceTask
 		values := []string{aggregate[i].Value}
 
 		var j int
-		for j = 0; j < len(aggregate) && aggregate[j].Key == key; j++ {
+		for j = i + 1; j < len(aggregate) && aggregate[j].Key == key; j++ {
 			values = append(values, aggregate[j].Value)
 		}
 		i = j
 
 		reducedValue := reducef(key, values)
+		//log.Printf("REDUCED KEY %s VALUE %s", key, reducedValue)
 		enc.Encode(KeyValue{Key: key, Value: reducedValue})
 	}
 	os.Rename(outputFile.Name(), outputFileName)
 
-	log.Printf("Reporting Reduce Task %d Done on %v, with output files %s", t.ID, t.IntermediateFiles, outputFile.Name())
+	log.Printf("Reporting Reduce Task %d Done on %v, with output files %s", t.ID, t.IntermediateFiles, outputFileName)
 	call(ReportReduce,
 		&ReportReduceRequest{
 			t.ID,
@@ -177,7 +181,6 @@ func call(rpcname string, args interface{}, reply interface{}) bool {
 	c, err := rpc.DialHTTP("unix", sockname)
 	if err != nil {
 		log.Println("Error! Failed connect", err.Error())
-		time.Sleep(1 * time.Second)
 		return false
 	}
 	defer c.Close()
